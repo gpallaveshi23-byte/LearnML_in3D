@@ -3,19 +3,12 @@
 This module is the heart of the project. You should be able to read every
 line in this file and explain what it does.
 
-Default architecture: 12 -> 64 -> 32 -> 2 with ReLU/ReLU/tanh and MSE loss.
-You will probably change H1/H2 (and re-derive backward()) at some point in
-your iteration — that's the whole point.
-
-The reference `backward()` below is for use by your *later* iterations and
-by benchmarking. The version YOU implement (and submit for grading) lives
-in `scripts/02_train.py` as `my_backward()`. Do not peek at this one before
-you've tried — the whole point of the first iteration is to write it.
+Default architecture: 12 -> 128 -> 64 -> 2 with ReLU/ReLU/tanh and MSE loss.
 """
 from __future__ import annotations
 import numpy as np
 
-H1, H2 = 64, 32
+H1, H2 = 128, 64
 N_IN, N_OUT = 12, 2
 
 
@@ -72,9 +65,9 @@ def backward(x: np.ndarray, y_target: np.ndarray, w: dict, cache: dict) -> dict:
     """
     n = x.shape[0]
     y = cache["y"]
-    # MSE → d/dy
+
     dy = 2.0 * (y - y_target) / (n * y.shape[1])
-    # tanh derivative: 1 - tanh(z3)^2 = 1 - y^2
+
     dz3 = dy * (1.0 - y * y)
     dW3 = cache["a2"].T @ dz3
     db3 = dz3.sum(axis=0)
@@ -88,10 +81,11 @@ def backward(x: np.ndarray, y_target: np.ndarray, w: dict, cache: dict) -> dict:
     dz1 = da1 * (cache["z1"] > 0)
     dW1 = x.T @ dz1
     db1 = dz1.sum(axis=0)
+
     return {"W1": dW1, "b1": db1, "W2": dW2, "b2": db2, "W3": dW3, "b3": db3}
 
 
-# ── Optimizer (Adam) ─────────────────────────────────────────────────────
+# ── Optimizer Adam ─────────────────────────────────────────────────────
 def init_adam(w: dict) -> dict:
     return {
         "m": {k: np.zeros_like(v) for k, v in w.items()},
@@ -141,27 +135,20 @@ def load(path: str) -> dict:
     return {k: z[k].astype(np.float32) for k in z.files}
 
 
-# ── Gradient check (Part 1, your safety net) ─────────────────────────────
+# ── Gradient check ───────────────────────────────────────────────────────
 def numerical_gradient(x: np.ndarray, y_target: np.ndarray, w: dict,
                        key: str, idx: tuple, h: float = 1e-4) -> float:
-    """Two-sided finite difference for ONE entry of one weight matrix.
-
-    Use this to verify your backward() against gold-standard numerical
-    gradients. If your analytic gradient and the numerical one disagree
-    by more than ~1e-4, your backprop has a bug.
-    """
+    """Two-sided finite difference for ONE entry of one weight matrix."""
     w[key][idx] += h
     loss_p = mse_loss(forward(x, w), y_target)
     w[key][idx] -= 2 * h
     loss_m = mse_loss(forward(x, w), y_target)
-    w[key][idx] += h  # restore
+    w[key][idx] += h
     return (loss_p - loss_m) / (2 * h)
 
 
 def check_gradients(x: np.ndarray, y: np.ndarray, w: dict, n_samples: int = 5) -> dict:
-    """Compare analytic and numerical gradients on a handful of random
-    weights from each parameter. Returns a dict of max relative errors.
-    """
+    """Compare analytic and numerical gradients on random weights."""
     cache = forward_all(x, w)
     grads = backward(x, y, w, cache)
     rng = np.random.default_rng(0)

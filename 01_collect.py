@@ -1,14 +1,13 @@
 """Step 1 — Collect a deliberate dataset.
 
-Run:  python 01_collect.py --tag v1 --seed 42
+Run:
+    python 01_collect.py --tag v2-recovery --seed 42
 
-It opens an interactive session, walks you through five driving phases on the
-terminal, and ALSO polls (x, z) positions during your drive so you can later
-overlay your training-drive path against the NN test-drive path
-(see drive2win.viz.plot_path_overlay).
+This version collects more recovery driving than the starter file. That is
+important because the neural network must learn what to do when the robot is
+already in a bad position, not only when it is driving cleanly.
 
-Output:  data_<tag>.npz with arrays `states`, `actions`, `positions`, and
-the integer `seed` used for the map.
+Output: data_<tag>.npz with arrays `states`, `actions`, `positions`, and `seed`.
 """
 from __future__ import annotations
 import argparse
@@ -21,12 +20,14 @@ from game_client import GameClient
 SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
+# More deliberate recovery data than the starter version.
 PHASES = [
-    ("Smooth laps",       90, "Hold throttle on straights, smooth steering through corners."),
-    ("Tight turns",       60, "Slow before each corner, take it cleanly."),
-    ("Obstacle clusters", 60, "Brake when the front ray gets short, steer around."),
-    ("Bad terrain",       60, "Drive deliberate lines on ice / mud / sand."),
-    ("Recovery",          60, "Drive into walls, get stuck, back out, turn around. DO NOT SKIP."),
+    ("Smooth laps",          90, "Hold throttle on straights, smooth steering through corners."),
+    ("Tight turns",          60, "Slow before each corner, then steer cleanly through it."),
+    ("Obstacle clusters",    60, "Brake when the front ray gets short, steer around obstacles."),
+    ("Bad terrain",          60, "Drive deliberate lines on ice / mud / sand."),
+    ("Wall recovery",        90, "Intentionally touch walls, reverse, turn away, and escape."),
+    ("Off-course recovery",  90, "Leave the clean racing line, then recover toward the next checkpoint."),
 ]
 
 
@@ -47,12 +48,11 @@ def _poll_positions(client: GameClient, stop_evt: threading.Event,
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tag", default="v1",
+    ap.add_argument("--tag", default="v2-recovery",
                     help="Suffix for output file (data_<tag>.npz)")
     ap.add_argument("--seed", type=int, default=42,
-                    help="Map seed. Same seed across iterations keeps the "
-                         "comparison clean; vary it once you want to test "
-                         "generalisation across different terrains.")
+                    help="Map seed. Keep this fixed while comparing iterations; "
+                         "vary it later for generalisation tests.")
     args = ap.parse_args()
 
     client = GameClient(SERVER_URL, API_KEY)
