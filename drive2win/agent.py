@@ -4,18 +4,21 @@ Use it with:
     python 03_benchmark.py --tag v2-recovery --module drive2win.agent \
         --seeds 42 7 99 --data data_v2-recovery.npz
 
-This file does NOT change training. It wraps the trained MLP with:
+This file wraps the trained MLP with:
   - action smoothing to reduce jitter
   - a small stuck/wall recovery fallback
-
-The benchmark already supports custom modules if they expose:
-    make_policy(weights_path) -> policy_fn
 """
 from __future__ import annotations
 import numpy as np
 
 from . import nn as nn_mod
 from .normalize import sensors_to_input, clip_action
+
+
+def _as_array_action(action):
+    """Convert action from tuple/list/np array into np.float32 array."""
+    throttle, steering = clip_action(action)
+    return np.array([throttle, steering], dtype=np.float32)
 
 
 class SmoothSafetyPolicy:
@@ -27,15 +30,19 @@ class SmoothSafetyPolicy:
 
     def __call__(self, state):
         sensors = state.get("sensors", {})
+
         x = sensors_to_input(sensors)
-        raw = clip_action(nn_mod.forward(x, self.w)).astype(np.float32)
 
-        # Smooth NN action to reduce steering/throttle jitter.
+        # Neural network action
+        raw = _as_array_action(nn_mod.forward(x, self.w))
+
+        # Smooth action to reduce jitter
         action = self.alpha * self.prev + (1.0 - self.alpha) * raw
-        self.prev = action.astype(np.float32)
+        action = _as_array_action(action)
+        self.prev = action
 
-        # Conservative safety fallback. Sensor names can vary by server version,
-        # so use .get() defaults. If fields are unavailable, this does nothing.
+        # Safety fallback.
+        # These .get() calls are defensive because sensor names may vary.
         speed = float(sensors.get("speed", sensors.get("velocity", 1.0)))
         front = float(sensors.get("ray_front", sensors.get("front_ray", 1.0)))
         front_left = float(sensors.get("ray_front_left", sensors.get("front_left_ray", 1.0)))
@@ -55,7 +62,8 @@ class SmoothSafetyPolicy:
             action = np.array([-0.65, steer], dtype=np.float32)
             self.prev = action
 
-        return clip_action(action)
+        throttle, steering = clip_action(action)
+        return throttle, steering
 
 
 def make_policy(weights_path: str):
