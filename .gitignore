@@ -6,13 +6,7 @@ __pycache__/
 venv/
 .env
 
-# Iteration artifacts (students generate these locally)
-data_*.npz
-nav_*.npz
-fig_*.png
-fig_*.jpg
-*.pt
-*.pkl
+
 
 # IDE
 .vscode/
