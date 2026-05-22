@@ -1,13 +1,14 @@
 """Step 1 — Collect a deliberate dataset.
 
 Run:
-    python 01_collect.py --tag v2-recovery --seed 42
+    py 01_collect.py --tag v5-clean --seed 42
 
-This version collects more recovery driving than the starter file. That is
-important because the neural network must learn what to do when the robot is
-already in a bad position, not only when it is driving cleanly.
+This version focuses mostly on clean checkpoint driving.
+It removes the old off-course recovery phase because too much recovery data
+can confuse the model and make it drive like it is always in trouble.
 
-Output: data_<tag>.npz with arrays `states`, `actions`, `positions`, and `seed`.
+Output:
+    data_<tag>.npz
 """
 from __future__ import annotations
 import argparse
@@ -20,47 +21,82 @@ from game_client import GameClient
 SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
-# More deliberate recovery data than the starter version.
+
+# Better phase balance:
+# Mostly clean driving, some turning/obstacles, only a little wall recovery.
 PHASES = [
-    ("Smooth laps",          90, "Hold throttle on straights, smooth steering through corners."),
-    ("Tight turns",          60, "Slow before each corner, then steer cleanly through it."),
-    ("Obstacle clusters",    60, "Brake when the front ray gets short, steer around obstacles."),
-    ("Bad terrain",          60, "Drive deliberate lines on ice / mud / sand."),
-    ("Wall recovery",        90, "Intentionally touch walls, reverse, turn away, and escape."),
-    ("Off-course recovery",  90, "Leave the clean racing line, then recover toward the next checkpoint."),
+    (
+        "Smooth checkpoint driving",
+        120,
+        "Drive slowly and smoothly toward checkpoints. Try to complete as many checkpoints as possible.",
+    ),
+    (
+        "Tight turns",
+        90,
+        "Slow before corners, then steer smoothly through them. Do not crash into walls.",
+    ),
+    (
+        "Obstacle clusters",
+        60,
+        "Brake when obstacles are close. Steer around them calmly.",
+    ),
+    (
+        "Bad terrain",
+        60,
+        "Drive deliberate lines on ice, mud, and sand. Avoid sudden steering.",
+    ),
+    (
+        "Small wall recovery",
+        45,
+        "Touch walls only a little, then reverse, turn away, and continue driving normally.",
+    ),
 ]
 
 
-def _poll_positions(client: GameClient, stop_evt: threading.Event,
-                    out: list, hz: float = 5.0):
+def _poll_positions(client: GameClient, stop_evt: threading.Event, out: list, hz: float = 5.0):
     """Background thread: poll position at low Hz so we can plot the path later."""
     interval = 1.0 / hz
+
     while not stop_evt.is_set():
         try:
             st = client.get_latest_state()
             pos = st.get("position") if st else None
+
             if pos and "x" in pos and "z" in pos:
                 out.append((time.time(), pos["x"], pos["z"]))
+
         except Exception:
             pass
+
         time.sleep(interval)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tag", default="v2-recovery",
-                    help="Suffix for output file (data_<tag>.npz)")
-    ap.add_argument("--seed", type=int, default=42,
-                    help="Map seed. Keep this fixed while comparing iterations; "
-                         "vary it later for generalisation tests.")
+    ap.add_argument(
+        "--tag",
+        default="v5-clean",
+        help="Suffix for output file. Example: --tag v5-clean saves data_v5-clean.npz",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Map seed. Keep fixed while comparing versions.",
+    )
     args = ap.parse_args()
 
     client = GameClient(SERVER_URL, API_KEY)
+
     session = client.create_session(
         mode="time_trial",
         player_name=f"d2w_collector_{args.tag}",
-        config={"seed": args.seed, "wind_enabled": False},
+        config={
+            "seed": args.seed,
+            "wind_enabled": False,
+        },
     )
+
     print("Open this URL in a NEW TAB and click into it so WASD reach the game:")
     print(" ", session.get("browser_url"))
     print()
@@ -69,39 +105,57 @@ def main():
     client.connect_ws()
     time.sleep(0.5)
 
-    positions: list = []
+    positions = []
     stop_evt = threading.Event()
-    t = threading.Thread(target=_poll_positions, args=(client, stop_evt, positions),
-                         daemon=True)
+
+    t = threading.Thread(
+        target=_poll_positions,
+        args=(client, stop_evt, positions),
+        daemon=True,
+    )
     t.start()
 
     client.start_recording(sample_rate=20)
+
     for i, (name, seconds, hint) in enumerate(PHASES, 1):
         print(f"\n--- Phase {i}/{len(PHASES)} — {name} ({seconds}s) ---")
         print(f"  {hint}")
-        print(f"  Driving for {seconds}s; switch to the browser tab now.")
-        for s in range(seconds, 0, -10):
-            print(f"  ... {s}s remaining")
-            time.sleep(min(10, s))
+        print("  Switch to the browser tab and drive now.")
+
+        remaining = seconds
+        while remaining > 0:
+            print(f"  ... {remaining}s remaining")
+            sleep_time = min(10, remaining)
+            time.sleep(sleep_time)
+            remaining -= sleep_time
 
     stop_evt.set()
+
     info = client.stop_recording()
     print(f"\nStopped. Samples on the server: {info.get('sample_count', '?')}")
 
     states_raw, actions = client.get_recording_as_arrays()
+
     print(f"states shape   : {states_raw.shape}   (N, 12)")
     print(f"actions shape  : {actions.shape}      (N, 2)")
 
     pos_arr = np.array([(p[1], p[2]) for p in positions], dtype=np.float32)
-    print(f"positions shape: {pos_arr.shape}     (M, 2)  — low-Hz path samples")
+    print(f"positions shape: {pos_arr.shape}     (M, 2)")
 
     assert states_raw.shape[0] >= 5_000, (
         "Fewer than 5,000 samples. Drive more before saving."
     )
 
     out = f"data_{args.tag}.npz"
-    np.savez(out, states=states_raw, actions=actions, positions=pos_arr,
-             seed=args.seed)
+
+    np.savez(
+        out,
+        states=states_raw,
+        actions=actions,
+        positions=pos_arr,
+        seed=args.seed,
+    )
+
     print(f"Saved {out}")
 
     try:
