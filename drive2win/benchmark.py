@@ -79,32 +79,69 @@ def run_benchmark(weights: str, runs: int = DEFAULT_RUNS, seed: int = DEFAULT_SE
 
     client = GameClient(server_url, api_key)
     runs_out = []
+
     try:
         for i in range(runs):
             session = client.create_session(
                 mode="time_trial",
                 player_name=f"{player_name}_run{i+1}",
-                config={"seed": seed, "wind_enabled": False},
+                config={
+                    "seed": seed,
+                    "wind_enabled": False,
+
+                    # Try to turn off obstacles.
+                    # The server may ignore unsupported keys.
+                    "obstacles_enabled": False,
+                    "obstacles": False,
+                    "num_obstacles": 0,
+                    "obstacle_count": 0,
+                },
             )
+
             client.connect_ws()
             time.sleep(0.6)
+
             print(f"\n  run {i+1}/{runs}  session={session['session_id'][:8]}…")
+
             result = run_policy(client, policy, duration=duration, hz=20.0)
-            print(f"    checkpoints={result['checkpoints_passed']}/{TARGET_CHECKPOINTS}  "
-                  f"crashes={result['crashes']}  steps={result['steps']}")
+
+            print(
+                f"    checkpoints={result['checkpoints_passed']}/{TARGET_CHECKPOINTS}  "
+                f"crashes={result['crashes']}  steps={result['steps']}"
+            )
+
             runs_out.append(result)
+
             client.disconnect_ws()
-            try: client.delete_session()
-            except Exception: pass
+
+            try:
+                client.delete_session()
+            except Exception:
+                pass
+
     finally:
-        try: client.disconnect_ws()
-        except Exception: pass
+        try:
+            client.disconnect_ws()
+        except Exception:
+            pass
 
     summary = score_runs(runs_out, TARGET_CHECKPOINTS)
-    return {"summary": summary, "runs": runs_out, "config": {
-        "weights": weights, "module": module, "seed": seed,
-        "runs": runs, "duration": duration,
-    }}
+
+    return {
+        "summary": summary,
+        "runs": runs_out,
+        "config": {
+            "weights": weights,
+            "module": module,
+            "seed": seed,
+            "runs": runs,
+            "duration": duration,
+            "obstacles_enabled": False,
+            "obstacles": False,
+            "num_obstacles": 0,
+            "obstacle_count": 0,
+        },
+    }
 
 
 def main():
@@ -136,6 +173,7 @@ def main():
     )
 
     s = result["summary"]
+
     print("\n" + "=" * 56)
     print(f"  median lap time  : {s['median_lap_time']:.1f} s   (only completed laps)")
     print(f"  completion rate  : {int(s['completion_rate'] * s['n_runs'])}/{s['n_runs']}")

@@ -1,16 +1,16 @@
-"""Step 1 — Collect a deliberate dataset.
+"""Step 1 — Collect data with obstacles turned off.
 
 Run:
-    py 01_collect.py --tag v5-clean --seed 42
-
-This version focuses mostly on clean checkpoint driving.
-It removes the old off-course recovery phase because too much recovery data
-can confuse the model and make it drive like it is always in trouble.
+    py 01_collect.py --tag v6-no-obstacles --seed 42
 
 Output:
     data_<tag>.npz
+
+Example:
+    data_v6-no-obstacles.npz
 """
 from __future__ import annotations
+
 import argparse
 import threading
 import time
@@ -18,27 +18,22 @@ import numpy as np
 
 from game_client import GameClient
 
+
 SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
 
-# Better phase balance:
-# Mostly clean driving, some turning/obstacles, only a little wall recovery.
+# No obstacle phase here because we are trying to disable obstacles.
 PHASES = [
     (
         "Smooth checkpoint driving",
-        120,
+        180,
         "Drive slowly and smoothly toward checkpoints. Try to complete as many checkpoints as possible.",
     ),
     (
         "Tight turns",
-        90,
+        120,
         "Slow before corners, then steer smoothly through them. Do not crash into walls.",
-    ),
-    (
-        "Obstacle clusters",
-        60,
-        "Brake when obstacles are close. Steer around them calmly.",
     ),
     (
         "Bad terrain",
@@ -47,7 +42,7 @@ PHASES = [
     ),
     (
         "Small wall recovery",
-        45,
+        30,
         "Touch walls only a little, then reverse, turn away, and continue driving normally.",
     ),
 ]
@@ -75,8 +70,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--tag",
-        default="v5-clean",
-        help="Suffix for output file. Example: --tag v5-clean saves data_v5-clean.npz",
+        default="v6-no-obstacles",
+        help="Suffix for output file. Example: --tag v6-no-obstacles saves data_v6-no-obstacles.npz",
     )
     ap.add_argument(
         "--seed",
@@ -88,14 +83,29 @@ def main():
 
     client = GameClient(SERVER_URL, API_KEY)
 
+    # Obstacle-disabling config.
+    # The server may accept only one of these keys.
+    # Extra unknown keys are usually ignored.
+    session_config = {
+        "seed": args.seed,
+        "wind_enabled": False,
+
+        # Try to disable obstacles:
+        "obstacles_enabled": False,
+        "obstacles": False,
+        "num_obstacles": 0,
+        "obstacle_count": 0,
+    }
+
     session = client.create_session(
         mode="time_trial",
         player_name=f"d2w_collector_{args.tag}",
-        config={
-            "seed": args.seed,
-            "wind_enabled": False,
-        },
+        config=session_config,
     )
+
+    print("Session config:")
+    print(session_config)
+    print()
 
     print("Open this URL in a NEW TAB and click into it so WASD reach the game:")
     print(" ", session.get("browser_url"))
@@ -123,6 +133,7 @@ def main():
         print("  Switch to the browser tab and drive now.")
 
         remaining = seconds
+
         while remaining > 0:
             print(f"  ... {remaining}s remaining")
             sleep_time = min(10, remaining)
