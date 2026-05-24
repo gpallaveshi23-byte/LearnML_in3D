@@ -49,7 +49,7 @@ def main():
         save_dict["positions"] = np.concatenate(all_positions, axis=0)
 
     if seeds:
-        save_dict["seed"] = np.array(seeds)
+        save_dict["seed"] = np.array(seeds, dtype=object)
 
     np.savez(args.out, **save_dict)
     print(f"Saved {args.out}")
