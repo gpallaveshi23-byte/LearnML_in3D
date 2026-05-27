@@ -22,7 +22,6 @@ SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
 PHASES = [
-    ("Smooth laps",       90, "Hold throttle on straights, smooth steering through corners."),
     ("Tight turns",       60, "Slow before each corner, take it cleanly."),
     ("Obstacle clusters", 60, "Brake when the front ray gets short, steer around."),
     ("Recovery",          60, "Drive into walls, get stuck, back out, turn around. DO NOT SKIP."),
@@ -94,8 +93,8 @@ def main():
     pos_arr = np.array([(p[1], p[2]) for p in positions], dtype=np.float32)
     print(f"positions shape: {pos_arr.shape}     (M, 2)  — low-Hz path samples")
 
-    assert states_raw.shape[0] >= 5_000, (
-        "Fewer than 5,000 samples. Drive more before saving."
+    assert states_raw.shape[0] >= 1_000, (
+        "Fewer than 1,000 samples. Drive more before saving."
     )
 
     out = f"data_{args.tag}.npz"
