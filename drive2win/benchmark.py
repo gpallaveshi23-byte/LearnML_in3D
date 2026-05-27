@@ -86,8 +86,8 @@ def run_benchmark(weights: str, runs: int = DEFAULT_RUNS, seed: int = DEFAULT_SE
                 player_name=f"{player_name}_run{i+1}",
                 config={
                     "seed": seed,
-                    "wind_enabled": False,
-                    "obstacles_enabled": False,
+                    "wind_enabled": True,  # benchmark with wind on since it's part of the challenge
+                    "obstacles_enabled": True,  # benchmark with obstacles on since they're part of the challenge
                 },
             )
             client.connect_ws()

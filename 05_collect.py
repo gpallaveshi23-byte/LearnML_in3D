@@ -22,11 +22,9 @@ SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
 PHASES = [
-    ("Smooth laps",       90, "Hold throttle on straights, smooth steering through corners."),
+    ("Smooth laps",       130, "Hold throttle on straights, smooth steering through corners."),
     ("Tight turns",       60, "Slow before each corner, take it cleanly."),
-    ("Obstacle clusters", 60, "Brake when the front ray gets short, steer around."),
     ("Bad terrain",       60, "Drive deliberate lines on ice / mud / sand."),
-    ("Recovery",          60, "Drive into walls, get stuck, back out, turn around. DO NOT SKIP."),
 ]
 
 
@@ -59,7 +57,7 @@ def main():
     session = client.create_session(
         mode="time_trial",
         player_name=f"d2w_collector_{args.tag}",
-        config={"seed": args.seed, "wind_enabled": True, "obstacles_enabled": True},
+        config={"seed": args.seed, "wind_enabled": False, "obstacles_enabled": False},
     )
     print("Open this URL in a NEW TAB and click into it so WASD reach the game:")
     print(" ", session.get("browser_url"))
