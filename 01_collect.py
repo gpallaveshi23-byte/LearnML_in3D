@@ -1,16 +1,16 @@
-"""Step 1 — Collect data with obstacles turned off.
+"""Step 1 — Collect a deliberate dataset.
 
-Run:
-    py 01_collect.py --tag v6-no-obstacles --seed 42
+Run:  python 01_collect.py --tag v1 --seed 42
 
-Output:
-    data_<tag>.npz
+It opens an interactive session, walks you through five driving phases on the
+terminal, and ALSO polls (x, z) positions during your drive so you can later
+overlay your training-drive path against the NN test-drive path
+(see drive2win.viz.plot_path_overlay).
 
-Example:
-    data_v6-no-obstacles.npz
+Output:  data_<tag>.npz with arrays `states`, `actions`, `positions`, and
+the integer `seed` used for the map.
 """
 from __future__ import annotations
-
 import argparse
 import threading
 import time
@@ -18,95 +18,49 @@ import numpy as np
 
 from game_client import GameClient
 
-
 SERVER_URL = "https://ml.ferit.tech"
 API_KEY = "None"  # paste yours if the server requires it
 
-
-# No obstacle phase here because we are trying to disable obstacles.
 PHASES = [
-    (
-        "Smooth checkpoint driving",
-        180,
-        "Drive slowly and smoothly toward checkpoints. Try to complete as many checkpoints as possible.",
-    ),
-    (
-        "Tight turns",
-        120,
-        "Slow before corners, then steer smoothly through them. Do not crash into walls.",
-    ),
-    (
-        "Bad terrain",
-        60,
-        "Drive deliberate lines on ice, mud, and sand. Avoid sudden steering.",
-    ),
-    (
-        "Small wall recovery",
-        30,
-        "Touch walls only a little, then reverse, turn away, and continue driving normally.",
-    ),
+    ("Smooth laps",       90, "Hold throttle on straights, smooth steering through corners."),
+    ("Tight turns",       60, "Slow before each corner, take it cleanly."),
+    ("Obstacle clusters", 60, "Brake when the front ray gets short, steer around."),
+    ("Bad terrain",       60, "Drive deliberate lines on ice / mud / sand."),
+    ("Recovery",          60, "Drive into walls, get stuck, back out, turn around. DO NOT SKIP."),
 ]
 
 
-def _poll_positions(client: GameClient, stop_evt: threading.Event, out: list, hz: float = 5.0):
+def _poll_positions(client: GameClient, stop_evt: threading.Event,
+                    out: list, hz: float = 5.0):
     """Background thread: poll position at low Hz so we can plot the path later."""
     interval = 1.0 / hz
-
     while not stop_evt.is_set():
         try:
             st = client.get_latest_state()
             pos = st.get("position") if st else None
-
             if pos and "x" in pos and "z" in pos:
                 out.append((time.time(), pos["x"], pos["z"]))
-
         except Exception:
             pass
-
         time.sleep(interval)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--tag",
-        default="v6-no-obstacles",
-        help="Suffix for output file. Example: --tag v6-no-obstacles saves data_v6-no-obstacles.npz",
-    )
-    ap.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Map seed. Keep fixed while comparing versions.",
-    )
+    ap.add_argument("--tag", default="v1",
+                    help="Suffix for output file (data_<tag>.npz)")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="Map seed. Same seed across iterations keeps the "
+                         "comparison clean; vary it once you want to test "
+                         "generalisation across different terrains.")
     args = ap.parse_args()
 
     client = GameClient(SERVER_URL, API_KEY)
-
-    # Obstacle-disabling config.
-    # The server may accept only one of these keys.
-    # Extra unknown keys are usually ignored.
-    session_config = {
-        "seed": args.seed,
-        "wind_enabled": False,
-
-        # Try to disable obstacles:
-        "obstacles_enabled": False,
-        "obstacles": False,
-        "num_obstacles": 0,
-        "obstacle_count": 0,
-    }
-
     session = client.create_session(
         mode="time_trial",
         player_name=f"d2w_collector_{args.tag}",
-        config=session_config,
+        config={"seed": args.seed, "wind_enabled": False, "obstacles_enabled": False},
     )
-
-    print("Session config:")
-    print(session_config)
-    print()
-
     print("Open this URL in a NEW TAB and click into it so WASD reach the game:")
     print(" ", session.get("browser_url"))
     print()
@@ -115,58 +69,39 @@ def main():
     client.connect_ws()
     time.sleep(0.5)
 
-    positions = []
+    positions: list = []
     stop_evt = threading.Event()
-
-    t = threading.Thread(
-        target=_poll_positions,
-        args=(client, stop_evt, positions),
-        daemon=True,
-    )
+    t = threading.Thread(target=_poll_positions, args=(client, stop_evt, positions),
+                         daemon=True)
     t.start()
 
     client.start_recording(sample_rate=20)
-
     for i, (name, seconds, hint) in enumerate(PHASES, 1):
         print(f"\n--- Phase {i}/{len(PHASES)} — {name} ({seconds}s) ---")
         print(f"  {hint}")
-        print("  Switch to the browser tab and drive now.")
-
-        remaining = seconds
-
-        while remaining > 0:
-            print(f"  ... {remaining}s remaining")
-            sleep_time = min(10, remaining)
-            time.sleep(sleep_time)
-            remaining -= sleep_time
+        print(f"  Driving for {seconds}s; switch to the browser tab now.")
+        for s in range(seconds, 0, -10):
+            print(f"  ... {s}s remaining")
+            time.sleep(min(10, s))
 
     stop_evt.set()
-
     info = client.stop_recording()
     print(f"\nStopped. Samples on the server: {info.get('sample_count', '?')}")
 
     states_raw, actions = client.get_recording_as_arrays()
-
     print(f"states shape   : {states_raw.shape}   (N, 12)")
     print(f"actions shape  : {actions.shape}      (N, 2)")
 
     pos_arr = np.array([(p[1], p[2]) for p in positions], dtype=np.float32)
-    print(f"positions shape: {pos_arr.shape}     (M, 2)")
+    print(f"positions shape: {pos_arr.shape}     (M, 2)  — low-Hz path samples")
 
     assert states_raw.shape[0] >= 5_000, (
         "Fewer than 5,000 samples. Drive more before saving."
     )
 
     out = f"data_{args.tag}.npz"
-
-    np.savez(
-        out,
-        states=states_raw,
-        actions=actions,
-        positions=pos_arr,
-        seed=args.seed,
-    )
-
+    np.savez(out, states=states_raw, actions=actions, positions=pos_arr,
+             seed=args.seed)
     print(f"Saved {out}")
 
     try:
